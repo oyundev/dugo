@@ -3,45 +3,16 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"sync"
 )
 
-func diskUsage(currPath string, info os.FileInfo, depth int) int64 {
-	var size int64
-
-	dir, err := os.Open(currPath)
-	if err != nil {
-		fmt.Println(err)
-		return size
-	}
-	defer dir.Close()
-
-	files, err := dir.Readdir(-1)
-	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
-	}
-
-	for _, file := range files {
-		if file.IsDir() {
-			size += diskUsage(fmt.Sprintf("%s/%s", currPath, file.Name()), file, depth+1)
-		} else {
-			size += file.Size()
-		}
-	}
-
-	if (*maxDepth) <= 0 || (*maxDepth) >= depth {
-		if threshold == 0 || size >= threshold {
-			prettyPrintSize(size)
-			fmt.Printf("\t %s%c\n", currPath, filepath.Separator)
-		}
-	}
-
-	return size
-}
+var wg sync.WaitGroup
+var size int64
 
 func prettyPrintSize(size int64) {
 	if *humanReadable {
@@ -119,7 +90,30 @@ func main() {
 		os.Exit(1)
 	}
 
-	diskUsage(dir, info, 0)
+	wg.Add(1)
+	go diskUsage(dir, info, 0)
+	wg.Wait()
+
+	prettyPrintSize(size)
+	fmt.Printf("\t %s%c\n", dir, filepath.Separator)
+}
+
+func diskUsage(currPath string, info os.FileInfo, depth int) {
+	defer wg.Done()
+
+	files, _ := ioutil.ReadDir(currPath)
+
+	for _, file := range files {
+		if file.IsDir() {
+			var newpath = fmt.Sprintf("%s/%s", currPath, file.Name())
+			var newdepth = depth + 1
+
+			wg.Add(1)
+			go diskUsage(newpath, file, newdepth)
+		} else {
+			size += file.Size()
+		}
+	}
 }
 
 func usageAndExit(msg string) {
