@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strconv"
 	"sync"
+	"sync/atomic"
 )
 
 var wg sync.WaitGroup
@@ -36,14 +37,12 @@ var usage = `Usage: dugo [options...] <target_dir>
 Options:
   -h  "Human-readable" output.  Use unit suffixes: Byte, Kilobyte, Megabyte, Gigabyte.
   -t  threshold of the size, any folders' size larger than the threshold will be print. for example, '1G', '10M', '100K', '1024'
-  -d  list its subdirectories and their sizes to any desired level of depth (i.e., to any level of subdirectories) in a directory tree.
 `
 
 var (
 	humanReadable = flag.Bool("h", false, "human readable unit of size")
 	thresholdStr  = flag.String("t", "", "the threshold for printing the folder size")
 	threshold     int64
-	maxDepth      = flag.Int("d", 0, "list its subdirectories and their sizes to any desired level of depth (i.e., to any level of subdirectories) in a directory tree.")
 )
 
 func main() {
@@ -91,14 +90,14 @@ func main() {
 	}
 
 	wg.Add(1)
-	go diskUsage(dir, info, 0)
+	go diskUsage(dir, info)
 	wg.Wait()
 
 	prettyPrintSize(size)
 	fmt.Printf("\t %s%c\n", dir, filepath.Separator)
 }
 
-func diskUsage(currPath string, info os.FileInfo, depth int) {
+func diskUsage(currPath string, info os.FileInfo) {
 	defer wg.Done()
 
 	files, _ := ioutil.ReadDir(currPath)
@@ -106,12 +105,11 @@ func diskUsage(currPath string, info os.FileInfo, depth int) {
 	for _, file := range files {
 		if file.IsDir() {
 			var newpath = fmt.Sprintf("%s/%s", currPath, file.Name())
-			var newdepth = depth + 1
 
 			wg.Add(1)
-			go diskUsage(newpath, file, newdepth)
+			go diskUsage(newpath, file)
 		} else {
-			size += file.Size()
+			atomic.AddInt64(&size, file.Size())
 		}
 	}
 }
